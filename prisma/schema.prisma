@@ -1,0 +1,119 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+// ============================================
+// USER MODEL
+// ============================================
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Hashed with bcrypt
+  name      String
+  phone     String
+  username  String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  webhooks Webhook[]
+
+  @@map("users")
+}
+
+// ============================================
+// WEBHOOK MODEL
+// ============================================
+model Webhook {
+  id        String   @id @default(uuid())
+  url       String
+  events    String[] // Array of event types: ["order.created", "payment.success"]
+  isActive  Boolean  @default(true)
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries Delivery[]
+
+  // Indexes
+  @@index([userId])
+  @@map("webhooks")
+}
+
+// ============================================
+// EVENT MODEL
+// ============================================
+model Event {
+  id        String      @id @default(uuid())
+  type      String      // e.g., "order.created", "payment.success"
+  payload   Json        // Full event payload as JSON
+  status    EventStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // Relations
+  deliveries Delivery[]
+
+  // Indexes
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@map("events")
+}
+
+// ============================================
+// DELIVERY MODEL
+// ============================================
+model Delivery {
+  id           String         @id @default(uuid())
+  eventId      String
+  webhookId    String
+  status       DeliveryStatus @default(RETRYING)
+  retryCount   Int            @default(0)
+  maxRetries   Int            @default(3)
+  responseCode Int?           // HTTP status code (200, 404, 500, etc.)
+  responseBody String?        // Response from webhook endpoint
+  errorMessage String?        // Error details if delivery failed
+  nextRetryAt  DateTime?      // Scheduled time for next retry
+  deliveredAt  DateTime?      // Timestamp of successful delivery
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  // Relations
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([eventId])
+  @@index([webhookId])
+  @@index([status])
+  @@index([nextRetryAt])
+  @@map("deliveries")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum EventStatus {
+  PENDING   // Event received, delivery not yet attempted
+  DELIVERED // At least one delivery succeeded
+  FAILED    // All deliveries failed after max retries
+}
+
+enum DeliveryStatus {
+  SUCCESS   // Delivery succeeded (2xx response)
+  RETRYING  // Delivery failed, will retry
+  FAILED    // Delivery failed after max retries
+}
